@@ -1,0 +1,16 @@
+[Unit]
+Description=MD chamber controller and remote page
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+EnvironmentFile=-__DIR__/.env
+ExecStart=/usr/bin/python3 __DIR__/md_chamber_control.py
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-# HydroCool MD Prototype
+# NeuraVapour MD Prototype
 
 An instrumented, closed-loop **membrane distillation (MD)** rig controlled by a Raspberry Pi. It heats a recirculating water loop, cools the permeate side with a Peltier module, and collects distillate across a hydrophobic PTFE membrane. A controller enforces safety interlocks locally, logs every run to CSV, and serves a small remote-control page.
 

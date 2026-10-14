@@ -1,249 +1,217 @@
-# NeuraVapour MD Prototype
+# HydroCool
 
-An instrumented, closed-loop **membrane distillation (MD)** rig controlled by a Raspberry Pi. It heats a recirculating water loop, cools the permeate side with a Peltier module, and collects distillate across a hydrophobic PTFE membrane. A controller enforces safety interlocks locally, logs every run to CSV, and serves a small remote-control page.
+**A closed-loop, noise-adaptive cooling prototype that turns a data center's waste heat into recovered water, with a live 3D digital twin (planned).**
 
-> **Status:** hardware loop built and running; controller, logging and remote page implemented. The 3D digital twin and noise-adaptive control are in development (see [Roadmap](#roadmap)).
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Status](https://img.shields.io/badge/status-prototype%20in%20progress-orange)
+![Hardware](https://img.shields.io/badge/controller-Raspberry%20Pi%20Zero-c51a4a)
+![Firmware](https://img.shields.io/badge/firmware-planned-lightgrey)
+![Dashboard](https://img.shields.io/badge/dashboard-planned-lightgrey)
 
----
+HydroCool is a low-cost, student-built hardware prototype. Resistors stand in for server heat, a closed water loop carries that heat to a membrane-distillation stage, and a Raspberry Pi adjusts pump, fan and Peltier power so the system stays as quiet as it can while staying cool. A browser-based 3D "digital twin" of a data center will mirror the live hardware and let you control it by clicking on components.
 
-## Contents
-- [How it works](#how-it-works)
-- [Features](#features)
-- [System architecture](#system-architecture)
-- [Hardware](#hardware)
-- [Wiring summary](#wiring-summary)
-- [Safety interlocks](#safety-interlocks)
+> **Project status, stated plainly:** the hardware design, bill of materials and build documentation are complete and parts have been sourced. The control firmware and the dashboard have **not been written yet**, and there are **no measured water-yield or noise results yet**. Targets in this README come from the [PRD](docs/prd.md) and are goals, not results.
+
+## Table of contents
+
+- [What the project does](#what-the-project-does)
+- [Why it is useful](#why-it-is-useful)
+- [Architecture](#architecture)
 - [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
-- [Configuration](#configuration)
-- [Remote control and API](#remote-control-and-api)
-- [Testing procedure](#testing-procedure)
-- [Results](#results)
-- [Known limitations](#known-limitations)
-- [Roadmap](#roadmap)
-- [License](#license)
+- [Status and roadmap](#status-and-roadmap)
+- [Where to get help](#where-to-get-help)
+- [Who maintains and contributes](#who-maintains-and-contributes)
+- [License and acknowledgements](#license-and-acknowledgements)
 
----
+## What the project does
 
-## How it works
+The prototype has three cooperating parts:
 
-Membrane distillation uses a temperature difference across a hydrophobic microporous membrane. Liquid water is held back by the membrane, while water vapour crosses it, driven by the vapour-pressure difference between the hot and cold sides. Dissolved solids and particulates stay behind.
+1. **Heat to water (wet side).** Three 25 W ceramic power resistors act as a controllable "server load". They sit under an aluminium heat sink and water block. A 12 V pump circulates water through the block and into a hot-side syringe. Some of that water evaporates, the vapor crosses a hydrophobic PTFE syringe-filter membrane (which blocks liquid water and dissolved salts), and it condenses on a Peltier-cooled cold-side syringe. The condensate is collected as output water.
+2. **Adaptive control.** A Raspberry Pi Zero reads temperature, noise, water level and flow sensors, then sets pump, fan, Peltier and resistor power through L298D motor drivers. The goal is the lowest fan and pump speed that still holds a safe temperature.
+3. **Digital twin (planned).** A Three.js scene shows a small data center whose rack colours, fan speed, water tank and noise gauge follow the real sensor values. Clicking a component opens a panel where you can change its settings. A hard safety ceiling always overrides manual commands.
 
-```
-Hot loop (recirculating):
-  Reservoir -> Pump -> Flow sensor -> Water block (heated by resistor bank) -> MD chamber (hot side) -> Reservoir
+## Why it is useful
 
-Vapour path (separate):
-  Hot side -> PTFE membrane -> cold side (cooled by Peltier) -> condenses -> distillate collector
-```
+Data centers use large amounts of water for evaporative cooling and produce constant fan and pump noise near homes. Both are now the subject of lawsuits, settlements and regulation. HydroCool is a small, affordable, demonstrable model of an alternative: keep the cooling water in a closed loop and use the waste heat to make water instead of wasting it.
 
-- **Heat in:** a resistor bank on a heat sink warms the water block, and the water carries the heat to the membrane.
-- **Heat out:** the Peltier cold face keeps the condensation side cold. Its hot face must be cooled by a heat sink and fan, or the temperature difference collapses.
-- **Driving force:** ΔT = T_hot − T_cold, giving a vapour-pressure difference across the membrane.
+**Key features**
 
-## Features
+- Closed cooling loop with no evaporative loss from the main loop.
+- Waste-heat-driven membrane distillation using a PTFE syringe-filter chamber. Several units can run in parallel to increase membrane area.
+- Noise-aware control: slows pumps and fans whenever temperature allows, and logs dB so a quieter-than-fixed-speed result can be demonstrated against a baseline.
+- Repeatable, adjustable heat load from resistors, so a demo can step between low, medium and high load on demand.
+- A full, beginner-oriented build guide, wiring guide and bill of materials.
+- Out-of-pocket cost of roughly ₹3,700 to ₹4,500 when common parts (Pi Zero, sensors, motor drivers, resistors, bench tools) are borrowed from a college lab.
 
-- Closed-loop water recirculation with flow confirmation before any heating
-- PWM control of pump, heater, Peltier and fan through two L298D drivers
-- Two DS18B20 temperature probes (hot side, cold side)
-- Flow, reservoir-level and sound sensing (ADS1115 ADC for the analogue sensors)
-- Local safety interlocks that work without WiFi
-- CSV logging every control cycle
-- Token-protected remote web page and JSON API: Start, Stop, Clear fault, setpoint slider, live readings
-- Boot-on-power systemd service
-- Simulation mode that runs the controller and web page on a laptop with fake hardware
-- Bench scripts for every sensor and actuator
+**What it is not.** It is a proof of concept. Membrane distillation for data center water recovery is still an emerging idea; today the dominant industrial use of data center waste heat is district heating. At prototype scale the water yield from a 25 mm filter disc is expected to be small. See [Path to real-world scale](docs/prd.md#14-path-to-real-world-scale) for what would change in a real facility (industrial chiller in place of the Peltier, membrane arrays, real server racks).
 
-## System architecture
+## Architecture
+
+Nodes link to the files that document them. GitHub does not render Mermaid `click` links, so on github.com use the table below the diagram; in the [Mermaid Live Editor](https://mermaid.live), GitLab or a docs site the nodes are clickable. The full diagram is in [`docs/architecture.md`](docs/architecture.md).
 
 ```mermaid
 flowchart LR
-  subgraph Wet["Wet assembly (sealed)"]
-    R[Reservoir] --> P[Pump] --> F[Flow sensor] --> W[Water block + resistor bank] --> M[MD chamber + PTFE membrane]
-    M --> R
-    M -. vapour .-> C[Cold side + Peltier] --> D[Distillate collector]
-  end
-  subgraph Elec["Electronics tray"]
-    Pi[Raspberry Pi] --> L1[L298D #1: pump, Peltier]
-    Pi --> L2[L298D #2: heater, fan]
-    Pi --- T[DS18B20 x2]
-    Pi --- A[ADS1115: sound, level]
-    Pi --- F
-  end
-  Pi --> Web[Web page + JSON API]
+    R["Resistors<br/>(simulated load)"] --> HS["Heat sink +<br/>water block"]
+    HS --> HSYR["Hot-side syringe"]
+    P["Water pump"] --> HS
+    HSYR --> P
+    HSYR -->|"vapor"| F["PTFE filter"]
+    F --> CSYR["Cold-side syringe<br/>+ Peltier"]
+    CSYR --> C["Collected water"]
+
+    S["Sensors<br/>(temp, sound, level, flow)"] --> PI["Raspberry Pi Zero"]
+    PI -->|"PWM"| DRV["L298D drivers"]
+    DRV --> R
+    DRV --> P
+    DRV --> CSYR
+    PI <-->|"WebSocket"| DASH["3D digital twin<br/>(planned)"]
+
+    click R href "docs/hardware-construction.md" "Heat source stack"
+    click HS href "docs/hardware-construction.md" "Heat source stack"
+    click HSYR href "docs/hardware-construction.md" "Wet side connections"
+    click P href "docs/hardware-construction.md" "Wet side connections"
+    click F href "docs/hardware-construction.md" "PTFE filter assembly"
+    click CSYR href "docs/hardware-construction.md" "Cold side and Peltier"
+    click C href "docs/hardware-construction.md" "Collecting output"
+    click S href "docs/hardware-wiring.md" "Sensor wiring"
+    click DRV href "docs/hardware-wiring.md" "Motor driver wiring"
+    click PI href "firmware/README.md" "Control loop (planned)"
+    click DASH href "dashboard/README.md" "Digital twin (planned)"
 ```
 
-The wet assembly stays sealed. Power electronics and control sit outside it, joined only through a cable gland.
-
-## Hardware
-
-| Part | Role |
+| Part of the system | Where it is documented |
 |---|---|
-| Raspberry Pi (developed on a Pi 3 B+) | Controller, logger, web server |
-| 2 × L298D motor driver | Switch and PWM the 12 V loads |
-| 12 V submersible pump | Water recirculation |
-| Resistor bank + aluminium heat sink + water block | Heat source |
-| TEC1-12706 Peltier module + heat sink + fan | Cold side / condensation |
-| PTFE hydrophobic membrane, polycarbonate chamber | MD chamber |
-| 2 × DS18B20 | Hot-side and cold-side temperature |
-| YF-S201 type flow sensor | Flow rate / circulation check |
-| ADS1115 ADC | Reads sound and reservoir-level sensors |
-| Analogue sound sensor, reservoir-level sensor | Diagnostics and dry-run protection |
-| 12 V adapter, inline fuse, buck converter (optional) | Power |
-| Reservoir, distillate collector, silicone tubing, cable gland | Fluid handling |
-
-## Wiring summary
-
-Full details, including the load-side wiring, are in [`docs/WIRING.md`](docs/WIRING.md).
-
-| Function | Pi pin (BCM) | Goes to |
-|---|---|---|
-| Pump | GPIO18 | L298D #1 ENA |
-| Peltier | GPIO13 | L298D #1 ENB |
-| Heater (resistor bank) | GPIO12 | L298D #2 ENA |
-| Fan | GPIO19 | L298D #2 ENB |
-| Temperature probes (1-Wire) | GPIO4 | DS18B20 data, with 4.7 kΩ pull-up to 3.3 V |
-| Flow sensor pulses | GPIO17 | Flow sensor signal (use a divider if its signal is 5 V) |
-| ADC (I²C) | GPIO2 (SDA), GPIO3 (SCL) | ADS1115 (A0 sound, A1 water level) |
-
-- All grounds (Pi, 12 V supply, both drivers, sensors) must share one common point.
-- Add 10 kΩ pull-down resistors from each EN pin to GND so loads stay off while the Pi boots.
-- Put a fuse inline on the 12 V positive line.
-
-> **Peltier current warning:** a TEC1-12706 can draw 4–6 A, but an L298D channel is only rated for about 2 A. Lowering the duty cycle does not fix this, because each on-pulse still carries the full current. Measure the current, and if it is above about 2 A, move the Peltier to a MOSFET module or a BTS7960 driver.
-
-## Safety interlocks
-
-All interlocks run on the Pi, so they keep working if WiFi drops. Any trip switches every output off and latches a **FAULT** until it is cleared.
-
-| Condition | Action |
-|---|---|
-| No flow (after a startup grace period) | Heater and Peltier off, fault latched |
-| Hot side above `MAX_HOT` | All outputs off, fault latched |
-| Reservoir level below `WATER_MIN` | All outputs off, fault latched |
-| Repeated sensor read failures | All outputs off, fault latched |
-
-The heater and Peltier only run while flow is confirmed. Remote commands are limited to Start, Stop, Clear fault and a setpoint that is clamped to a fixed range. There is no raw pin control.
+| Heat source, wet side, MD stage, enclosure | [`docs/hardware-construction.md`](docs/hardware-construction.md) |
+| Pin-level wiring and power | [`docs/hardware-wiring.md`](docs/hardware-wiring.md) |
+| Control loop (planned) | [`firmware/README.md`](firmware/README.md) |
+| Digital twin (planned) | [`dashboard/README.md`](dashboard/README.md) |
+| Requirements, scope, risks | [`docs/prd.md`](docs/prd.md) |
+| Budget and timeline | [`docs/project-proposal.md`](docs/project-proposal.md) |
+| Phase-by-phase plan | [`docs/execution-plan.md`](docs/execution-plan.md) |
 
 ## Repository layout
 
-```
-.
-├── md_chamber_control.py   # controller, interlocks, logging, web page and API
-├── config.py               # every tunable value: probe ids, limits, duties, pins
-├── .env.example            # copy to .env and set MD_TOKEN
-├── scripts/                # bench tests: probes, sensors, drivers, PWM, heater, all_off
-├── deploy/                 # systemd service + install.sh
-├── docs/                   # SETUP, TESTING, WIRING, REMOTE
-└── logs/                   # CSV run logs (git-ignored)
+```text
+hydrocool/
+├── README.md
+├── LICENSE
+├── CONTRIBUTING.md
+├── docs/
+│   ├── architecture.md          # full interactive Mermaid diagram
+│   ├── hardware-construction.md # what each part does, build steps, real-world mapping
+│   ├── hardware-wiring.md       # GPIO pins, power, sensor wiring
+│   ├── prd.md                   # product requirements
+│   ├── project-proposal.md      # problem, components, budget, timeline
+│   └── execution-plan.md        # phase-by-phase build and test plan
+├── firmware/                    # Pi control loop (planned)
+└── dashboard/                   # 3D digital twin (planned)
 ```
 
 ## Getting started
 
-### Try it without hardware
-```bash
-pip install flask
-MD_SIMULATE=1 python3 md_chamber_control.py
-```
-Open http://localhost:8000 and use the token `test`.
+There is no software to install yet. Getting started today means building and bench-testing the hardware.
 
-### On the Raspberry Pi
-```bash
-git clone https://github.com/<your-username>/<repo-name>.git
-cd <repo-name>
-```
-1. Follow [`docs/SETUP.md`](docs/SETUP.md) to enable I²C and 1-Wire and to install libraries.
-2. Work through [`docs/TESTING.md`](docs/TESTING.md) in order. Stop and fix anything that fails before moving on.
-3. Fill in `config.py`: `HOT_ID`, `COLD_ID`, `WATER_MIN`, `MIN_FLOW_LMIN`.
-4. Install the service:
-   ```bash
-   bash deploy/install.sh
-   ```
-   The script prints your access token. Open `http://<pi-ip>:8000` and paste it.
-5. After a successful leak test, set `MD_AUTO_START=1` in `.env` if you want the rig to start itself on power-up. It is off by default so the rig never heats on its own before you have verified it.
+### 1. Gather the parts
 
-## Configuration
-
-Everything you are likely to tune is in [`config.py`](config.py):
-
-| Setting | Meaning |
+| Group | Parts |
 |---|---|
-| `HOT_ID`, `COLD_ID` | DS18B20 ids, without the `28-` prefix |
-| `TARGET_HOT` | Default hot-side setpoint (°C) |
-| `SETPOINT_MIN`, `SETPOINT_MAX` | Clamp for remote setpoints |
-| `MAX_HOT` | Hard over-temperature cutoff |
-| `WATER_MIN` | Raw ADS1115 level value below which the reservoir counts as low |
-| `FLOW_FACTOR` | Flow sensor calibration (7.5 is typical for a YF-S201; check yours) |
-| `MIN_FLOW_LMIN` | Below this the loop counts as "no flow" |
-| `PUMP_DUTY`, `HEATER_DUTY`, `PELTIER_DUTY`, `FAN_DUTY` | Output duty cycles (0–1) |
-| `LOOP_S` | Control and logging interval in seconds |
+| Controller and electronics | Raspberry Pi Zero (WiFi variant recommended), power adapter, 16 GB SD card, 2x L298D motor driver modules, ADS1115 ADC, DC-DC converter, breadboard and jumper wires (male-female and female-female), 4.7 kΩ resistor, inline fuse and holder, 12 V power adapter |
+| Sensors | 2x DS18B20 waterproof probes, sound detection sensor, water level sensor, water flow sensor |
+| Heat source | 3x 25 W ceramic power resistors, 40x40x20 mm aluminium heat sink, thermal paste |
+| Wet side | Aluminium water block, 12 V submersible pump, 6 mm ID / 8 mm OD silicone tubing, 2 syringes (luer-lock), PTFE hydrophobic syringe filter |
+| Cold side | TEC1-12706 Peltier module, 40 mm heat sink, 12 V 4010 fan |
+| Enclosure and acoustics | 280x190x130 mm ABS box, acoustic foam, rubber vibration pads, PG7 cable glands, aquarium-safe silicone sealant, M3 hardware kit, spray adhesive |
 
-Secrets such as `MD_TOKEN` live in `.env` and are never committed.
+The full list with search terms and what to check before buying is in [`docs/project-proposal.md`](docs/project-proposal.md) and [`docs/hardware-construction.md`](docs/hardware-construction.md).
 
-## Remote control and API
+### 2. Build the hardware
 
-The page at `/` offers Start, Stop, Clear fault, a setpoint slider and live readings. Remote access is meant to run over a private network such as Tailscale (see [`docs/REMOTE.md`](docs/REMOTE.md)). Do not expose the port to the open internet.
+Follow [`docs/hardware-construction.md`](docs/hardware-construction.md) in order: stack the heat source bottom to top (resistors, paste, heat sink, paste, water block), plumb the single loop (pump → water block → hot-side syringe → back to pump), screw the PTFE filter onto the syringe tip, and mount the cold-side syringe against the Peltier. **Leak-test the loop with water running for at least 15 minutes before powering the resistors.**
 
-All endpoints need the header `X-Token: <your token>`.
+### 3. Wire the electronics
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/api/status` | Latest readings, state, fault, target, flow state, per-device duty, limits |
-| POST | `/api/start` | Start the run |
-| POST | `/api/stop` | Stop the run |
-| POST | `/api/clear` | Clear a latched fault |
-| POST | `/api/setpoint` | Body `{"value": <°C>}`, clamped to the configured range |
+Follow [`docs/hardware-wiring.md`](docs/hardware-wiring.md). Two rules matter most: the Pi and the 12 V supply are separate power systems but **their grounds must be joined**, and any 5 V sensor signal into a Pi GPIO pin needs a voltage divider because the Pi's pins are 3.3 V only.
 
-## Testing procedure
+### 4. Prepare the Pi
 
-[`docs/TESTING.md`](docs/TESTING.md) is a tick-box checklist:
+Flash Raspberry Pi OS to the SD card, boot, then enable the buses the sensors use:
 
-1. Both temperature probes detected
-2. Pre-power checklist (fuse, continuity, resistor value, common ground)
-3. PWM test of each output, one at a time
-4. Peltier polarity check
-5. Heater test with a temperature cutoff
-6. Full control run with logging
-7. Leak test with the loop running for 15+ minutes
+```bash
+sudo raspi-config nonint do_i2c 0       # ADS1115
+sudo raspi-config nonint do_onewire 0   # DS18B20
+sudo reboot
+```
 
-## Results
+### 5. Bring-up checks
 
-Fill this section from your own run logs. Keep the raw CSV files so anyone can check the numbers.
+Confirm each subsystem on its own before running anything together.
 
-| Quantity | Value | Notes |
-|---|---|---|
-| Hot-side temperature | | |
-| Cold-side temperature | | |
-| ΔT | | |
-| Flow rate | | |
-| Run duration | | |
-| Distillate volume | | Measured in a graduated cylinder |
-| Distillate rate (mL/min) | | |
-| Membrane area (cm²) | | Needed to compute flux |
-| Flux (L/m²·h) | | |
-| Electrical power (W) | | Measured, not estimated |
-| Energy per litre (kWh/L) | | |
+Temperature probes (each DS18B20 appears as a `28-...` device):
 
-As a sanity check, evaporating 1 g of water needs about 2.26 kJ. The heat your rig carries into evaporation can never exceed the electrical power you put in.
+```bash
+ls /sys/bus/w1/devices/
+cat /sys/bus/w1/devices/28-*/w1_slave
+```
 
-## Known limitations
+Pump speed through the driver's enable pin (GPIO18 per the wiring guide). Start with the pump submerged and the loop filled:
 
-- Prototype scale: output is millilitres per minute, and it is not a production design.
-- A simple resistor-heated, Peltier-cooled loop is not energy-efficient. Energy per litre is high compared with MD systems that recover heat internally.
-- Temperature measurements are at the loop, not at the membrane surface, so temperature polarization is not captured.
-- The sound sensor gives a coarse analogue reading, not a calibrated dB value.
-- Flow factor and the no-flow threshold must be calibrated to your own loop.
+```python
+from time import sleep
+from gpiozero import PWMOutputDevice
 
-## Roadmap
+pump = PWMOutputDevice(18)
+for duty in (0.3, 0.6, 1.0, 0.0):
+    pump.value = duty
+    print(f"pump duty {duty:.0%}")
+    sleep(5)
+```
 
-- [ ] Peltier current measurement and a higher-current driver
-- [ ] Power measurement (for example an INA219 on the 12 V line)
-- [ ] Distillate volume logging
-- [ ] Noise-adaptive control (reduce pump and fan duty above a noise threshold while holding ΔT)
-- [ ] Characterize flux and energy per litre across ΔT and flow rate
-- [ ] 3D digital twin: live mirror of the rig, a fitted model with predicted-versus-measured comparison, and a data-center scale-up view
-- [ ] Optional cloud logging
+I2C devices (the ADS1115 usually shows at address `0x48`):
 
-## License
+```bash
+sudo apt install -y i2c-tools
+i2cdetect -y 1
+```
 
-MIT. See `LICENSE`.
+Before applying resistor power, check that the Peltier's cold face is the face against the cold-side syringe (an infrared thermometer is ideal), and never swap its polarity afterwards.
+
+### Safety
+
+- Resistors and the heat sink get hot. Use heat-safe surfaces and do not touch the stack while powered.
+- Keep electronics out of any splash zone. Use an inline fuse on the 12 V supply.
+- Do not run the pump dry, and do not force liquid through the membrane by pressurising the hot-side syringe.
+
+## Status and roadmap
+
+| Area | Status |
+|---|---|
+| Requirements, scope and risks ([PRD](docs/prd.md)) | Done |
+| Bill of materials and parts sourcing | Done (a few small items still to buy) |
+| Build and wiring documentation | Done |
+| Hardware build and leak testing | Not started |
+| Control firmware | Planned |
+| Digital twin dashboard | Planned |
+| Measured results (water yield, noise, temperature, salinity) | Not started |
+
+**Targets from the PRD** (not yet achieved): measurable condensate output (aspirationally 20 to 50 mL per hour, which may need several syringe-filter units in parallel), operating noise at or below 55 dB at 1 m, and dashboard lag under 1 to 2 seconds.
+
+## Where to get help
+
+- **Build questions:** start with [`docs/hardware-construction.md`](docs/hardware-construction.md) and [`docs/hardware-wiring.md`](docs/hardware-wiring.md).
+- **Why a design decision was made:** see [`docs/prd.md`](docs/prd.md), including the risks table and the path-to-scale section.
+- **Bugs, wiring mistakes or unclear steps:** open an issue in this repository's issue tracker with a photo and the exact part listing you used.
+- **Planned software:** see [`firmware/README.md`](firmware/README.md) and [`dashboard/README.md`](dashboard/README.md).
+
+## Who maintains and contributes
+
+HydroCool is maintained by **[Your Name / Team Name]**, [Your University], as a 3rd-year engineering project. Replace this line with your team and a public contact (a GitHub profile or a project email you are comfortable sharing).
+
+Contributions are welcome, especially measured results and firmware. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first.
+
+## License and acknowledgements
+
+Released under the MIT License. See [`LICENSE`](LICENSE).
+
+The heat-to-water idea was inspired by a hackathon project named Drip, which used a Raspberry Pi 5 and a membrane-distillation chamber. HydroCool differs in adding noise-adaptive control, a controllable heat load, and a digital twin.
